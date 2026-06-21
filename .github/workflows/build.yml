@@ -97,19 +97,28 @@ jobs:
           fi
           file "$BIN"
 
-          # NOTE: Broadcast Extension not embedded for now
-          # (Windows IPA extraction has path issues with extensions)
-          # Extension source code is retained for future use
+          # Embed Broadcast Extension
+          if [ -d "$EXT" ]; then
+            echo "Embedding Broadcast Extension..."
+            mkdir -p "$APP/PlugIns"
+            cp -R "$EXT" "$APP/PlugIns/"
+            echo "Extension embedded"
+          else
+            echo "WARNING: Extension not found, skipping"
+          fi
 
           # Sign binaries
           echo "=== Signing ==="
           brew install ldid 2>&1 | tail -1
           ldid -S "$BIN"
+          if [ -f "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension" ]; then
+            ldid -S "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension"
+          fi
 
-          # Package IPA
+          # Package IPA (zip instead of ditto for Windows compatibility)
           mkdir -p Payload
           cp -R "$APP" Payload/
-          ditto -c -k --keepParent Payload LongScreenshot.ipa
+          zip -r LongScreenshot.ipa Payload
           rm -rf Payload
           echo "IPA: $(ls -lh LongScreenshot.ipa)"
 
