@@ -13,7 +13,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build app
+      - name: Build main app
         run: |
           set -e
           xcodebuild clean build \
@@ -29,43 +29,75 @@ jobs:
             SWIFT_VERSION=5.5 \
             2>&1 | tee build.log
 
-          echo "=== Build products ==="
-          ls -la build/Products/
-          echo "=== Searching for binary ==="
-          find build -name "LongScreenshot" -type f | head -10
+          echo "=== Main app binary ==="
+          file build/Products/LongScreenshot.app/LongScreenshot || echo "NOT FOUND"
 
-      - name: Upload build log
+      - name: Build Broadcast Extension
+        run: |
+          set -e
+          brew install xcodegen
+          xcodegen generate --spec broadcast-project.yml
+          sed -i '' 's/objectVersion = [0-9]*;/objectVersion = 56;/' BroadcastExtension.xcodeproj/project.pbxproj
+
+          xcodebuild clean build \
+            -project BroadcastExtension.xcodeproj \
+            -scheme BroadcastExtension \
+            -sdk iphoneos \
+            -configuration Release \
+            CONFIGURATION_BUILD_DIR="$(pwd)/build/Extension" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            SWIFT_VERSION=5.0 \
+            2>&1 | tee build-extension.log
+
+          echo "=== Extension binary ==="
+          file build/Extension/BroadcastExtension.appex/BroadcastExtension || echo "NOT FOUND"
+
+      - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: build.log
+          name: build-logs
+          path: |
+            build.log
+            build-extension.log
           retention-days: 3
 
       - name: Create IPA
         run: |
-          APP=$(find build -name "LongScreenshot.app" -type d | head -1)
-          if [ -z "$APP" ]; then
+          APP="build/Products/LongScreenshot.app"
+          EXT="build/Extension/BroadcastExtension.appex"
+
+          if [ ! -d "$APP" ]; then
             echo "ERROR: .app not found"
-            find build -type d | head -30
             exit 1
           fi
-          echo "App: $APP"
-
-          BIN="$APP/LongScreenshot"
-          if [ ! -f "$BIN" ]; then
-            echo "ERROR: Binary not found at $BIN"
-            ls -la "$APP/"
+          if [ ! -f "$APP/LongScreenshot" ]; then
+            echo "ERROR: main binary not found"
             exit 1
           fi
-          file "$BIN"
-          echo "Binary OK"
 
-          echo "=== ldid signing ==="
+          # Embed extension
+          if [ -d "$EXT" ]; then
+            echo "Embedding Broadcast Extension..."
+            mkdir -p "$APP/PlugIns"
+            cp -R "$EXT" "$APP/PlugIns/"
+            echo "Extension embedded"
+          else
+            echo "WARNING: Extension not found, skipping"
+          fi
+
+          # Sign binaries
+          echo "=== Signing ==="
           brew install ldid 2>&1 | tail -1
-          ldid -S "$BIN"
-          echo "ldid exit: $?"
+          ldid -S "$APP/LongScreenshot"
+          if [ -f "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension" ]; then
+            ldid -S "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension"
+          fi
 
+          # Package IPA
           mkdir -p Payload
           cp -R "$APP" Payload/
           ditto -c -k --keepParent Payload LongScreenshot.ipa

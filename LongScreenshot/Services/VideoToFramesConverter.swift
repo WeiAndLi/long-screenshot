@@ -192,4 +192,53 @@ actor VideoToFramesConverter {
             }
         }
     }
+
+    /// 从本地文件 URL 生成超长截图（用于系统控制中心录屏）
+    func generateLongScreenshot(fromLocalURL url: URL, progress: StitchingProgress) async -> UIImage? {
+        let asset = AVAsset(url: url)
+        let duration = (try? await asset.load(.duration)) ?? .zero
+        let durationSeconds = CMTimeGetSeconds(duration)
+
+        guard durationSeconds >= 2.0 else {
+            logger.warning("视频时长过短: \(durationSeconds)秒")
+            return nil
+        }
+
+        let tracks = try? await asset.load(.tracks)
+        let videoTracks = tracks?.filter { $0.mediaType == .video } ?? []
+        var videoSize: CGSize = .zero
+        if let videoTrack = videoTracks.first {
+            let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
+            let preferredTransform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
+            let isRotated = abs(preferredTransform.a) < 0.1
+            videoSize = isRotated ? CGSize(width: naturalSize.height, height: naturalSize.width) : naturalSize
+        }
+
+        progress.updatePhase(.loading)
+        progress.currentProgress = 0.1
+
+        // extract frames
+        guard let frames = try? await extractFullFrames(from: asset, progress: progress) else {
+            return nil
+        }
+
+        guard frames.count >= 2 else {
+            logger.warning("提取帧数不足")
+            return nil
+        }
+
+        progress.updatePhase(.stitching)
+        progress.currentProgress = 0.6
+
+        // stitch using VideoScreenshotBuilder
+        let builder = VideoScreenshotBuilder()
+        guard let image = try? await builder.buildLongScreenshot(from: frames, videoSize: videoSize, progress: progress) else {
+            return nil
+        }
+
+        progress.updatePhase(.completed)
+        progress.currentProgress = 1.0
+
+        return image
+    }
 }

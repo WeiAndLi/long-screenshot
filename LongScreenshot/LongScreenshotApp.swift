@@ -1,32 +1,72 @@
 import SwiftUI
 import CoreData
+import Photos
 
 @main
 struct LongScreenshotApp: App {
-    // 共享的 Core Data 持久化控制器
     let persistenceController = PersistenceController.shared
-    
+
+    @State private var autoProcessTask: Task<Void, Never>?
+
     init() {
-        // 配置 Core Data 调试输出（仅在 DEBUG 模式）
         #if DEBUG
         if CommandLine.arguments.contains("-com.apple.CoreData.SQLDebug") {
             print("Core Data SQL 调试已启用")
         }
         #endif
     }
-    
+
     var body: some Scene {
         WindowGroup {
             ContentView()
-                // 注入 Core Data 环境
                 .environment(\.managedObjectContext, persistenceController.viewContext)
+                .onAppear { startAutoProcessTimer() }
+                .onReceive(
+                    NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+                ) { _ in
+                    checkPendingRecordings()
+                }
+        }
+    }
+
+    // MARK: - 自动处理控制中心录屏
+
+    private func startAutoProcessTimer() {
+        autoProcessTask = Task {
+            while !Task.isCancelled {
+                checkPendingRecordings()
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3秒轮询
+            }
+        }
+    }
+
+    private func checkPendingRecordings() {
+        let defaults = UserDefaults(suiteName: "group.com.longscreenshot.app")
+        guard var pending: [String] = defaults?.stringArray(forKey: "pendingVideos"),
+              !pending.isEmpty else { return }
+
+        let videoPath = pending.removeFirst()
+        defaults?.set(pending, forKey: "pendingVideos")
+
+        let videoURL = URL(fileURLWithPath: videoPath)
+        guard FileManager.default.fileExists(atPath: videoPath) else { return }
+
+        // 异步处理录屏
+        Task.detached(priority: .background) {
+            let converter = VideoToFramesConverter()
+            let progress = StitchingProgress()
+            if let result = await converter.generateLongScreenshot(fromLocalURL: videoURL, progress: progress) {
+                // 保存到相册
+                try? await PHPhotoLibrary.shared().performChanges {
+                    PHAssetChangeRequest.creationRequestForAsset(from: result)
+                }
+                // 清理临时文件
+                try? FileManager.default.removeItem(at: videoURL)
+            }
         }
     }
 }
 
-// MARK: - Environment Keys
-
-/// 用于在 SwiftUI 环境中访问 PersistentController 的 Key
 private struct PersistenceControllerKey: EnvironmentKey {
     static let defaultValue = PersistenceController.shared
 }
