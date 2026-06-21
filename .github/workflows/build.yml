@@ -16,12 +16,13 @@ jobs:
       - name: Build main app
         run: |
           set -e
+          rm -rf build/DD build/Products
           xcodebuild clean build \
             -project LongScreenshot.xcodeproj \
             -scheme LongScreenshot \
             -sdk iphoneos \
             -configuration Release \
-            CONFIGURATION_BUILD_DIR="$(pwd)/build/Products" \
+            -derivedDataPath "$(pwd)/build/DD" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -29,8 +30,9 @@ jobs:
             SWIFT_VERSION=5.5 \
             2>&1 | tee build.log
 
-          echo "=== Main app binary ==="
-          file build/Products/LongScreenshot.app/LongScreenshot || echo "NOT FOUND"
+          echo "=== Looking for .app ==="
+          find build -name "*.app" -type d
+          find build -name "LongScreenshot" -type f | head -10
 
       - name: Build Broadcast Extension
         run: |
@@ -67,17 +69,23 @@ jobs:
 
       - name: Create IPA
         run: |
-          APP="build/Products/LongScreenshot.app"
+          APP=$(find build -name "LongScreenshot.app" -type d | head -1)
           EXT="build/Extension/BroadcastExtension.appex"
 
-          if [ ! -d "$APP" ]; then
+          if [ -z "$APP" ] || [ ! -d "$APP" ]; then
             echo "ERROR: .app not found"
+            find build -type d | head -30
             exit 1
           fi
-          if [ ! -f "$APP/LongScreenshot" ]; then
-            echo "ERROR: main binary not found"
+          echo "App: $APP"
+
+          BIN="$APP/LongScreenshot"
+          if [ ! -f "$BIN" ]; then
+            echo "ERROR: main binary not found at $BIN"
+            ls -la "$APP/"
             exit 1
           fi
+          file "$BIN"
 
           # Embed extension
           if [ -d "$EXT" ]; then
@@ -92,7 +100,7 @@ jobs:
           # Sign binaries
           echo "=== Signing ==="
           brew install ldid 2>&1 | tail -1
-          ldid -S "$APP/LongScreenshot"
+          ldid -S "$BIN"
           if [ -f "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension" ]; then
             ldid -S "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension"
           fi
