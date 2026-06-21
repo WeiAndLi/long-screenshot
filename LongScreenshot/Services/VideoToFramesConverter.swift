@@ -232,7 +232,7 @@ actor VideoToFramesConverter {
 
         // stitch using VideoScreenshotBuilder
         let builder = VideoScreenshotBuilder()
-        guard let image = try? await builder.buildLongScreenshot(from: frames, videoSize: videoSize, progress: progress) else {
+        guard let image = builder.build(frames: frames) else {
             return nil
         }
 
