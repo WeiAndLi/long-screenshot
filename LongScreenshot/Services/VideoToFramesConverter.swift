@@ -204,21 +204,11 @@ actor VideoToFramesConverter {
             return nil
         }
 
-        let tracks = try? await asset.load(.tracks)
-        let videoTracks = tracks?.filter { $0.mediaType == .video } ?? []
-        var videoSize: CGSize = .zero
-        if let videoTrack = videoTracks.first {
-            let naturalSize = (try? await videoTrack.load(.naturalSize)) ?? .zero
-            let preferredTransform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
-            let isRotated = abs(preferredTransform.a) < 0.1
-            videoSize = isRotated ? CGSize(width: naturalSize.height, height: naturalSize.width) : naturalSize
-        }
-
         progress.updatePhase(.loading)
-        progress.currentProgress = 0.1
+        progress.updatePhaseProgress(.loading, progress: 0.5)
 
-        // extract frames
-        guard let frames = try? await extractFullFrames(from: asset, progress: progress) else {
+        // extract frames (returns tuple: images + grayscale data)
+        guard let (frames, _) = try? await extractFullFrames(from: asset, progress: progress) else {
             return nil
         }
 
@@ -228,7 +218,7 @@ actor VideoToFramesConverter {
         }
 
         progress.updatePhase(.stitching)
-        progress.currentProgress = 0.6
+        progress.updatePhaseProgress(.stitching, progress: 0.5)
 
         // stitch using VideoScreenshotBuilder
         let builder = VideoScreenshotBuilder()
@@ -236,8 +226,8 @@ actor VideoToFramesConverter {
             return nil
         }
 
-        progress.updatePhase(.completed)
-        progress.currentProgress = 1.0
+        progress.updatePhase(.finalizing)
+        progress.updatePhaseProgress(.finalizing, progress: 1.0)
 
         return image
     }
