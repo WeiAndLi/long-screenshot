@@ -16,13 +16,15 @@ jobs:
       - name: Build main app
         run: |
           set -e
-          rm -rf build/DD build/Products
+          rm -rf build
+          # Use BOTH: CONFIGURATION_BUILD_DIR for binary + derivedDataPath for intermediates
           xcodebuild clean build \
             -project LongScreenshot.xcodeproj \
             -scheme LongScreenshot \
             -sdk iphoneos \
             -configuration Release \
             -derivedDataPath "$(pwd)/build/DD" \
+            CONFIGURATION_BUILD_DIR="$PWD/build/Products" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -30,9 +32,13 @@ jobs:
             SWIFT_VERSION=5.5 \
             2>&1 | tee build.log
 
-          echo "=== Looking for .app ==="
-          find build -name "*.app" -type d
-          find build -name "LongScreenshot" -type f | head -10
+          echo "=== Build output ==="
+          echo "Products dir:"
+          ls -la build/Products/ 2>/dev/null || echo "(empty)"
+          echo "App contents:"
+          ls -la build/Products/LongScreenshot.app/ 2>/dev/null || echo "(not found)"
+          echo "All binaries:"
+          find build -name "LongScreenshot" -type f 2>/dev/null | head -10
 
       - name: Build Broadcast Extension
         run: |
@@ -69,7 +75,11 @@ jobs:
 
       - name: Create IPA
         run: |
-          APP=$(find build -name "LongScreenshot.app" -type d | head -1)
+          # Try CONFIGURATION_BUILD_DIR first, then fall back to DerivedData
+          APP="build/Products/LongScreenshot.app"
+          if [ ! -d "$APP" ]; then
+            APP=$(find build -name "LongScreenshot.app" -type d | head -1)
+          fi
           EXT="build/Extension/BroadcastExtension.appex"
 
           if [ -z "$APP" ] || [ ! -d "$APP" ]; then
