@@ -97,23 +97,14 @@ jobs:
           fi
           file "$BIN"
 
-          # Embed extension
-          if [ -d "$EXT" ]; then
-            echo "Embedding Broadcast Extension..."
-            mkdir -p "$APP/PlugIns"
-            cp -R "$EXT" "$APP/PlugIns/"
-            echo "Extension embedded"
-          else
-            echo "WARNING: Extension not found, skipping"
-          fi
+          # NOTE: Broadcast Extension not embedded for now
+          # (Windows IPA extraction has path issues with extensions)
+          # Extension source code is retained for future use
 
           # Sign binaries
           echo "=== Signing ==="
           brew install ldid 2>&1 | tail -1
           ldid -S "$BIN"
-          if [ -f "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension" ]; then
-            ldid -S "$APP/PlugIns/BroadcastExtension.appex/BroadcastExtension"
-          fi
 
           # Package IPA
           mkdir -p Payload
