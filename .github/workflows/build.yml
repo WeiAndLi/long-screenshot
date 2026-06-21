@@ -1,0 +1,80 @@
+name: Build LongScreenshot
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build app
+        run: |
+          set -e
+          xcodebuild clean build \
+            -project LongScreenshot.xcodeproj \
+            -scheme LongScreenshot \
+            -sdk iphoneos \
+            -configuration Release \
+            CONFIGURATION_BUILD_DIR="$(pwd)/build/Products" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            SWIFT_VERSION=5.5 \
+            2>&1 | tee build.log
+
+          echo "=== Build products ==="
+          ls -la build/Products/
+          echo "=== Searching for binary ==="
+          find build -name "LongScreenshot" -type f | head -10
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 3
+
+      - name: Create IPA
+        run: |
+          APP=$(find build -name "LongScreenshot.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "ERROR: .app not found"
+            find build -type d | head -30
+            exit 1
+          fi
+          echo "App: $APP"
+
+          BIN="$APP/LongScreenshot"
+          if [ ! -f "$BIN" ]; then
+            echo "ERROR: Binary not found at $BIN"
+            ls -la "$APP/"
+            exit 1
+          fi
+          file "$BIN"
+          echo "Binary OK"
+
+          echo "=== ldid signing ==="
+          brew install ldid 2>&1 | tail -1
+          ldid -S "$BIN"
+          echo "ldid exit: $?"
+
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          ditto -c -k --keepParent Payload LongScreenshot.ipa
+          rm -rf Payload
+          echo "IPA: $(ls -lh LongScreenshot.ipa)"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LongScreenshot.ipa
+          path: LongScreenshot.ipa
+          retention-days: 7
